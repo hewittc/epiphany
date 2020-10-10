@@ -1,0 +1,3 @@
+CFLAGS_MODULE += -I$(src)
+
+obj-m$(CONFIG_EPIPHANY) += epiphany.o

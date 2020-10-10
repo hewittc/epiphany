@@ -1,0 +1,15 @@
+config EPIPHANY
+	tristate "Adapteva Epiphany device driver"
+	depends on OF
+	default m
+
+	help
+	  The epiphany device driver gives user space applications access to
+	  the eMesh on-chip-network via an e-link interface connected on the
+	  system bus. The driver is meant to be used in conjunction with
+	  a user space API.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called epiphany.
+
+	  If unsure, say N.
