@@ -1,0 +1,2 @@
+SUBSYSTEM=="epiphany",KERNEL=="elink*",GROUP="elink",MODE="0660"
+SUBSYSTEM=="epiphany",KERNEL=="mesh*",GROUP="elink",MODE="0660"
