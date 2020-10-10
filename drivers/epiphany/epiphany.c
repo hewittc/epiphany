@@ -463,7 +463,7 @@ static void elink_disable_chip_elink(struct elink_device *elink,
 		return;
 
 	regs_phys = (core_phys | E_REG_BASE) & PAGE_MASK;
-	regs = ioremap_nocache(regs_phys, PAGE_SIZE);
+	regs = ioremap(regs_phys, PAGE_SIZE);
 	WARN_ON(!regs);
 	if (!regs)
 		return;
@@ -559,7 +559,7 @@ static void array_enable_clock_gating(struct elink_device *elink,
 				continue;
 
 			paddr = (core | E_REG_BASE) & PAGE_MASK;
-			core_mem = ioremap_nocache(paddr, PAGE_SIZE);
+			core_mem = ioremap(paddr, PAGE_SIZE);
 			WARN_ON(!core_mem);
 			if (!core_mem)
 				continue;
@@ -606,7 +606,7 @@ static int configure_chip_tx_divider(struct elink_device *elink,
 		return err;
 
 	regs_phys = (core_phys | E_REG_BASE) & PAGE_MASK;
-	regs = ioremap_nocache(regs_phys, PAGE_SIZE);
+	regs = ioremap(regs_phys, PAGE_SIZE);
 	offset = E_REG_LINKCFG & ~(PAGE_MASK);
 	WARN_ON(!regs);
 	if (!regs)
@@ -653,6 +653,7 @@ static int configure_adjacent_links(struct elink_device *elink)
 			the_chip = side == E_SIDE_N ? north_chip : south_chip;
 			return configure_chip_tx_divider(elink, the_chip, side);
 		}
+		break;
 	case E_SIDE_E:
 	case E_SIDE_W:
 		for (i = 0, west_chip = array->id;
@@ -663,12 +664,15 @@ static int configure_adjacent_links(struct elink_device *elink)
 			the_chip = side == E_SIDE_W ? west_chip : east_chip;
 			return configure_chip_tx_divider(elink, the_chip, side);
 		}
+		break;
 	default:
 		WARN_ON(true);
-		return -EINVAL;
 	}
+
+	return -EINVAL;
 }
 
+__attribute__((unused))
 static void elink_update_mmu_mappings(struct elink_device *elink)
 {
 	const u32 mmu_base = 0xe8000;
@@ -928,7 +932,7 @@ retry:
 			continue;
 		}
 
-		if (!down_read_trylock(&mm->mmap_sem)) {
+		if (!down_read_trylock(&mm->mmap_lock)) {
 			mmput(mm);
 			put_task_struct(task);
 			mutex_unlock(&epiphany.driver_lock);
@@ -940,7 +944,7 @@ retry:
 			zap_vma_ptes(vma, vma->vm_start,
 				     vma->vm_end - vma->vm_start);
 		}
-		up_read(&mm->mmap_sem);
+		up_read(&mm->mmap_lock);
 
 		mmput(mm);
 		put_task_struct(task);
@@ -1199,7 +1203,7 @@ static int mesh_pfn_to_phys_pfn(struct elink_device *elink, unsigned long pfn,
 	return -EINVAL;
 }
 
-static int epiphany_vm_fault(struct vm_fault *vmf)
+static unsigned int epiphany_vm_fault(struct vm_fault *vmf)
 {
 	unsigned long phys_pfn;
 	struct elink_device *elink = vma_to_elink(vmf->vma);
@@ -1222,13 +1226,14 @@ static int epiphany_vm_fault(struct vm_fault *vmf)
 	if (ret)
 		goto out_unlock;
 
-	ret = vm_insert_pfn(vmf->vma, vmf->address, phys_pfn);
+	ret = vmf_insert_pfn(vmf->vma, (unsigned long)vmf->address, phys_pfn);
 
 out_unlock:
 	mutex_unlock(&epiphany.driver_lock);
 out:
 	switch (ret) {
 	case 0:
+	case VM_FAULT_NOPAGE:
 	case -ERESTARTSYS:
 	case -EINTR:
 	case -EBUSY:
@@ -1310,6 +1315,7 @@ static int elink_char_mmap(struct file *file, struct vm_area_struct *vma)
 	return _elink_char_mmap(elink, vma);
 }
 
+__attribute__((unused))
 static int mesh_char_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct mesh_device *mesh = file_to_mesh(file);
@@ -1585,10 +1591,10 @@ static long elink_char_ioctl(struct file *file, unsigned int cmd,
 	 * Isn't copy_to_user() already doing that? */
 	if (_IOC_DIR(cmd) & _IOC_READ) {
 		err =
-		    !access_ok(VERIFY_READ, (void __user *)arg, _IOC_SIZE(cmd));
+		    !access_ok((void __user *)arg, _IOC_SIZE(cmd));
 	} else if (_IOC_DIR(cmd) & _IOC_WRITE) {
 		err =
-		    !access_ok(VERIFY_WRITE, (void __user *)arg,
+		    !access_ok((void __user *)arg,
 			       _IOC_SIZE(cmd));
 	}
 
@@ -1682,6 +1688,7 @@ static long mesh_char_ioctl_probe(struct mesh_device *mesh, unsigned long arg)
 	return 0;
 }
 
+__attribute__((unused))
 static long mesh_char_ioctl(struct file *file, unsigned int cmd,
 				unsigned long arg)
 {
@@ -1712,10 +1719,10 @@ static long mesh_char_ioctl(struct file *file, unsigned int cmd,
 	 * Isn't copy_to_user() already doing that? */
 	if (_IOC_DIR(cmd) & _IOC_READ) {
 		err =
-		    !access_ok(VERIFY_READ, (void __user *)arg, _IOC_SIZE(cmd));
+		    !access_ok((void __user *)arg, _IOC_SIZE(cmd));
 	} else if (_IOC_DIR(cmd) & _IOC_WRITE) {
 		err =
-		    !access_ok(VERIFY_WRITE, (void __user *)arg,
+		    !access_ok((void __user *)arg,
 			       _IOC_SIZE(cmd));
 	}
 
@@ -2650,7 +2657,7 @@ static struct elink_device *elink_of_probe(struct platform_device *pdev)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	elink->regs = devm_ioremap_nocache(&pdev->dev, elink->regs_start,
+	elink->regs = devm_ioremap(&pdev->dev, elink->regs_start,
 					   elink->regs_size);
 	if (!elink->regs) {
 		dev_err(&pdev->dev, "Mapping eLink registers failed.\n");
